@@ -11,10 +11,11 @@ pub fn main() !void {
 
     try format(ppm.writer(), "P3\n {d} {d}\n255\n", .{ image_width, image_height });
 
-    for (0..image_width) |x| {
-        for (0..image_height) |y| {
-            const r_int = x;
-            const g_int = y;
+    for (0..image_width) |j| {
+        try stdout.print("\x1BM \x1b[1;37m Scanlines remaining: {d}\n", .{image_height - j});
+        for (0..image_height) |i| {
+            const r_int = i;
+            const g_int = j;
             const b_int = 0;
             try std.fmt.format(ppm.writer(), "{d} {d} {d}\n", .{ r_int, g_int, b_int });
         }
