@@ -1,24 +1,22 @@
 const std = @import("std");
+const stdout = std.io.getStdOut().writer();
+const format = std.fmt.format;
 
 pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+    const image_width = 256;
+    const image_height = 256;
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+    const ppm = try std.fs.cwd().createFile("image.ppm", .{});
+    defer ppm.close();
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+    try format(ppm.writer(), "P3\n {d} {d}\n255\n", .{ image_width, image_height });
 
-    try bw.flush(); // don't forget to flush!
-}
-
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
+    for (0..image_width) |x| {
+        for (0..image_height) |y| {
+            const r_int = x;
+            const g_int = y;
+            const b_int = 0;
+            try std.fmt.format(ppm.writer(), "{d} {d} {d}\n", .{ r_int, g_int, b_int });
+        }
+    }
 }
