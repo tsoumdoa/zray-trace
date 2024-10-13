@@ -49,8 +49,13 @@ pub const vec3 = struct {
 
 pub const point3 = vec3;
 
-pub inline fn add(u: vec3, v: vec3) vec3 {
-    return vec3(u.x + v.x, u.y + v.y, u.z + v.z);
+pub inline fn Dot(u: vec3, v: vec3) f32 {
+    return u.e[0] * v.e[0] + u.e[1] * v.e[1] + u.e[2] * v.e[2];
+}
+
+pub inline fn Cross(u: vec3, v: vec3) vec3 {
+    var c = @Vector(3, f32){ u.e[1] * v.e[2] - u.e[2] * v.e[1], u.e[2] * v.e[0] - u.e[0] * v.e[2], u.e[0] * v.e[1] - u.e[1] * v.e[0] };
+    return vec3.init(&c);
 }
 
 const test_alloc = std.testing.allocator;
@@ -123,4 +128,27 @@ test "vec3 length sqr test" {
     v.* = .{ 3, 4, 5 };
     const vec = vec3.init(v);
     try std.testing.expectEqual(@as(f32, @sqrt(3.0 * 3.0 + 4.0 * 4.0 + 5.0 * 5.0)), vec.length_sqr());
+}
+
+test "vec3 dot test" {
+    const v = try test_alloc.create(@Vector(3, f32));
+    defer test_alloc.destroy(v);
+    v.* = .{ 1, 2, 3 };
+    const vec = vec3.init(v);
+    try std.testing.expectEqual(@as(f32, 14), Dot(vec, vec));
+}
+
+test "vec3 cross test" {
+    const v1 = try test_alloc.create(@Vector(3, f32));
+    const v2 = try test_alloc.create(@Vector(3, f32));
+    defer test_alloc.destroy(v1);
+    defer test_alloc.destroy(v2);
+    v1.* = .{ 1, 0, 0 };
+    v2.* = .{ 0, 1, 0 };
+    const vec1 = vec3.init(v1);
+    const vec2 = vec3.init(v2);
+    const cross = Cross(vec1, vec2);
+    try std.testing.expectEqual(@as(f32, 0), cross.e[0]);
+    try std.testing.expectEqual(@as(f32, 0), cross.e[1]);
+    try std.testing.expectEqual(@as(f32, 1), cross.e[2]);
 }
