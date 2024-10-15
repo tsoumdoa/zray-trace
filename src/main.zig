@@ -2,6 +2,7 @@ const std = @import("std");
 const stdout = std.io.getStdOut().writer();
 const format = std.fmt.format;
 const vec3 = @import("vec3.zig").vec3;
+const dot = @import("vec3.zig").Dot;
 const point3 = @import("vec3.zig").point3;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
@@ -15,6 +16,19 @@ const Ray = struct {
         return self.origin.add(self.direction.mul(t));
     }
 };
+
+fn hitSphere(ray: *Ray, center: point3, radius: f32) bool {
+    var oc = center.e.* - ray.origin.e.*;
+    const a = dot(ray.direction, ray.direction);
+    const oc_vec3 = vec3.init(&oc);
+    const b = -2.0 * dot(ray.direction, oc_vec3);
+    const c = dot(oc_vec3, oc_vec3) - radius * radius;
+    const discriminant = b * b - 4.0 * a * c;
+    if (discriminant < 0) {
+        return false;
+    } else return true;
+    return false;
+}
 
 const ASPECT_RATIO: f32 = 16.0 / 9.0;
 const image_width = 400;
@@ -101,8 +115,8 @@ pub fn main() !void {
             const i_splat = @as(@Vector(3, f32), @splat(@as(f32, @floatFromInt(i))));
             const j_splat = @as(@Vector(3, f32), @splat(@as(f32, @floatFromInt(j))));
 
-            const piexel_center = pxel00_loc + (i_splat * pixel_delta_u) + (j_splat * pixel_delta_v);
-            const ray_direction = piexel_center - camera_center;
+            var pixel_center = pxel00_loc + (i_splat * pixel_delta_u) + (j_splat * pixel_delta_v);
+            var ray_direction = pixel_center - camera_center;
 
             const a = 0.5 * (ray_direction[1] + 1);
 
@@ -111,10 +125,20 @@ pub fn main() !void {
 
             const col = start_col + end_col;
 
-            const r_int = @as(u8, @intFromFloat(col[0] * 255));
-            const g_int = @as(u8, @intFromFloat(col[1] * 255));
-            const b_int = @as(u8, @intFromFloat(col[2] * 255));
-            try std.fmt.format(ppm.writer(), "{d} {d} {d}\n", .{ r_int, g_int, b_int });
+            const vpc = vec3.init(&pixel_center);
+            const vd = vec3.init(&ray_direction);
+            var ray = Ray{ .origin = vpc, .direction = vd };
+
+            var center = @Vector(3, f32){ 0, 0, -1 };
+            const hit_sphere = hitSphere(&ray, vec3.init(&center), 0.5);
+            if (hit_sphere) {
+                try std.fmt.format(ppm.writer(), "{d} {d} {d}\n", .{ 255, 255, 0 });
+            } else {
+                const r_int = @as(u8, @intFromFloat(col[0] * 255));
+                const g_int = @as(u8, @intFromFloat(col[1] * 255));
+                const b_int = @as(u8, @intFromFloat(col[2] * 255));
+                try std.fmt.format(ppm.writer(), "{d} {d} {d}\n", .{ r_int, g_int, b_int });
+            }
         }
     }
 }
