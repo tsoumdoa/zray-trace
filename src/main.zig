@@ -4,6 +4,7 @@ const format = std.fmt.format;
 const vec3 = @import("vec3.zig").vec3;
 const dot = @import("vec3.zig").Dot;
 const point3 = @import("vec3.zig").point3;
+const unitVector = @import("vec3.zig").unitVector;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 const print = std.debug.print;
@@ -12,22 +13,26 @@ const Ray = struct {
     origin: point3,
     direction: vec3,
 
-    fn pointAtParameter(self: Ray, t: f32) point3 {
-        return self.origin.add(self.direction.mul(t));
+    fn pointAtParameter(self: Ray, t: f32) @Vector(3, f32) {
+        const c = self.direction.mul(t);
+        return self.origin.e.* + c.e.*;
     }
 };
 
-fn hitSphere(ray: *Ray, center: point3, radius: f32) bool {
+fn hitSphere(ray: *Ray, center: point3, radius: f32) f32 {
     var oc = center.e.* - ray.origin.e.*;
-    const a = dot(ray.direction, ray.direction);
     const oc_vec3 = vec3.init(&oc);
-    const b = -2.0 * dot(ray.direction, oc_vec3);
-    const c = dot(oc_vec3, oc_vec3) - radius * radius;
-    const discriminant = b * b - 4.0 * a * c;
+    const a = ray.direction.length_sqr();
+    const h = dot(ray.direction, oc_vec3);
+    const c = oc_vec3.length_sqr() - (radius * radius);
+    const discriminant = (h * h) - (a * c);
+
     if (discriminant < 0) {
-        return false;
-    } else return true;
-    return false;
+        return -1.0;
+    } else {
+        const r = (h - @sqrt(discriminant)) / a;
+        return r;
+    }
 }
 
 const ASPECT_RATIO: f32 = 16.0 / 9.0;
@@ -62,50 +67,14 @@ const delta_uv_half_splat = @as(@Vector(3, f32), @splat(0.5)) * delta_uv;
 
 pub fn main() !void {
     assert(image_height >= 1);
-    var gpa_impl: std.heap.GeneralPurposeAllocator(.{}) = .{};
-    const gpa = gpa_impl.allocator();
 
-    defer _ = gpa_impl.deinit();
-
-    var arena_impl = std.heap.ArenaAllocator.init(gpa);
-    const arena = arena_impl.allocator();
-    defer arena_impl.deinit();
-    _ = arena;
-
-    var ray_list = ArrayList(*Ray).init(gpa);
-    defer ray_list.deinit();
-
-    const camera_center = @Vector(3, f32){ 0, 0, 0 };
+    var camera_center = @Vector(3, f32){ 0, 0, 0 };
 
     const viewport_upper_left = camera_center - @Vector(3, f32){ 0, 0, focal_length } - viewport_u_half - viewport_v_half;
     const pxel00_loc = viewport_upper_left + delta_uv_half_splat;
 
-    // for (0..image_width) |i| {
-    //     for (0..image_height) |j| {
-    //         const src_vec = try arena.create(@Vector(3, f32));
-    //         src_vec.* = @Vector(3, f32){ @as(f32, @floatFromInt(i)), @as(f32, @floatFromInt(j)), 0 };
-    //
-    //         const dir_vec = try arena.create(@Vector(3, f32));
-    //         dir_vec.* = @Vector(3, f32){ 0, 0, 1 };
-    //
-    //         const src = try arena.create(point3);
-    //         src.* = point3.init(src_vec);
-    //
-    //         const dir = try arena.create(vec3);
-    //         dir.* = vec3.init(dir_vec);
-    //
-    //         const ray = try arena.create(Ray);
-    //         ray.* = Ray{ .origin = src, .direction = dir };
-    //         try ray_list.append(ray);
-    //     }
-    // }
-
     const ppm = try std.fs.cwd().createFile("image.ppm", .{});
     defer ppm.close();
-
-    // for (ray_list.items) |ray| {
-    // try stdout.print("ray: {d} {d} {d}\n", .{ ray.origin.x(), ray.origin.y(), ray.origin.z() });
-    // }
 
     try format(ppm.writer(), "P3\n {d} {d}\n255\n", .{ image_width, image_height });
 
@@ -115,25 +84,28 @@ pub fn main() !void {
             const i_splat = @as(@Vector(3, f32), @splat(@as(f32, @floatFromInt(i))));
             const j_splat = @as(@Vector(3, f32), @splat(@as(f32, @floatFromInt(j))));
 
-            var pixel_center = pxel00_loc + (i_splat * pixel_delta_u) + (j_splat * pixel_delta_v);
+            const pixel_center = pxel00_loc + (i_splat * pixel_delta_u) + (j_splat * pixel_delta_v);
             var ray_direction = pixel_center - camera_center;
 
-            const a = 0.5 * (ray_direction[1] + 1);
-
-            const start_col = @as(@Vector(3, f32), @splat(1.0 - a));
-            const end_col = @Vector(3, f32){ a * 0.5, a * 0.7, a * 1.0 };
-
-            const col = start_col + end_col;
-
-            const vpc = vec3.init(&pixel_center);
-            const vd = vec3.init(&ray_direction);
-            var ray = Ray{ .origin = vpc, .direction = vd };
-
+            var ray = Ray{ .origin = vec3.init(&camera_center), .direction = vec3.init(&ray_direction) };
             var center = @Vector(3, f32){ 0, 0, -1 };
-            const hit_sphere = hitSphere(&ray, vec3.init(&center), 0.5);
-            if (hit_sphere) {
-                try std.fmt.format(ppm.writer(), "{d} {d} {d}\n", .{ 255, 255, 0 });
+
+            const t = hitSphere(&ray, vec3.init(&center), 0.5);
+            if (t > 0) {
+                var v = ray.pointAtParameter(t) - center;
+                const v3 = vec3.init(&v);
+                const n = unitVector(v3);
+                const r_int = @as(u8, @intFromFloat(0.5 * (n.x() + 1) * 255));
+                const g_int = @as(u8, @intFromFloat(0.5 * (n.y() + 1) * 255));
+                const b_int = @as(u8, @intFromFloat(0.5 * (n.z() + 1) * 255));
+                try std.fmt.format(ppm.writer(), "{d} {d} {d}\n", .{ r_int, g_int, b_int });
             } else {
+                const ray_vec = vec3.init(&ray_direction);
+                const unit_direction = unitVector(ray_vec);
+                const a = 0.5 * (unit_direction.y() + 1);
+                const start_col = @as(@Vector(3, f32), @splat(1.0 - a));
+                const end_col = @Vector(3, f32){ a * 0.5, a * 0.7, a * 1.0 };
+                const col = start_col + end_col;
                 const r_int = @as(u8, @intFromFloat(col[0] * 255));
                 const g_int = @as(u8, @intFromFloat(col[1] * 255));
                 const b_int = @as(u8, @intFromFloat(col[2] * 255));

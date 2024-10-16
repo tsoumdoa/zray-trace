@@ -58,6 +58,10 @@ pub inline fn Cross(u: vec3, v: vec3) vec3 {
     return vec3.init(&c);
 }
 
+pub inline fn unitVector(v: vec3) vec3 {
+    return v.div(v.length_sqr());
+}
+
 const test_alloc = std.testing.allocator;
 
 test "vec3 init test" {
