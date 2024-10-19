@@ -8,16 +8,9 @@ const unitVector = @import("vec3.zig").unitVector;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 const print = std.debug.print;
-
-const Ray = struct {
-    origin: point3,
-    direction: vec3,
-
-    fn pointAtParameter(self: Ray, t: f32) @Vector(3, f32) {
-        const c = self.direction.mul(t);
-        return self.origin.e.* + c.e.*;
-    }
-};
+const Ray = @import("./ray.zig").Ray;
+const HitRecord = @import("./hit_record.zig").HitRecord;
+const Sphere = @import("./sphere.zig").Sphere;
 
 fn hitSphere(ray: *Ray, center: point3, radius: f32) f32 {
     var oc = center.e.* - ray.origin.e.*;
@@ -41,9 +34,11 @@ const image_height = @as(usize, @intFromFloat(@as(f32, @floatFromInt(image_width
 const image_width_splat = @as(@Vector(3, f32), @splat(@as(f32, @floatFromInt(image_width))));
 const image_height_splat = @as(@Vector(3, f32), @splat(@as(f32, @floatFromInt(image_height))));
 
+// camera
 const focal_length: f32 = 1.0;
 const viewport_height: f32 = 2.0;
 const viewport_width = viewport_height * @as(f32, @floatFromInt(image_width)) / @as(f32, @floatFromInt(image_height));
+var camera_center = @Vector(3, f32){ 0, 0, 0 };
 
 const viewport_u = @Vector(3, f32){
     viewport_width,
@@ -61,21 +56,39 @@ const viewport_v_half = viewport_v / @as(@Vector(3, f32), @splat(2));
 
 const pixel_delta_u = viewport_u / image_width_splat;
 const pixel_delta_v = viewport_v / image_height_splat;
-
-const delta_uv = pixel_delta_u + pixel_delta_v;
-const delta_uv_half_splat = @as(@Vector(3, f32), @splat(0.5)) * delta_uv;
+const delta_uv_half_splat = @as(@Vector(3, f32), @splat(0.5)) * (pixel_delta_u + pixel_delta_v);
 
 pub fn main() !void {
     assert(image_height >= 1);
 
-    var camera_center = @Vector(3, f32){ 0, 0, 0 };
-
     const viewport_upper_left = camera_center - @Vector(3, f32){ 0, 0, focal_length } - viewport_u_half - viewport_v_half;
     const pxel00_loc = viewport_upper_left + delta_uv_half_splat;
 
+    //allocator stuff
+    var gpa_impl: std.heap.GeneralPurposeAllocator(.{}) = .{};
+    const gpa = gpa_impl.allocator();
+    defer _ = gpa_impl.deinit();
+
+    var arena_impl = std.heap.ArenaAllocator.init(gpa);
+    const arena = arena_impl.allocator();
+
+    const World = union {
+        sphere: *Sphere,
+    };
+
+    var world = ArrayList(World).init(gpa);
+    defer world.deinit();
+
+    var center_one = @Vector(3, f32){ 0, 0, -1 };
+    var sphere_one = try Sphere.init(point3.init(&center_one), 0.5);
+    try world.append(World{ .sphere = &sphere_one });
+    var center_two = @Vector(3, f32){ 0.0, -2, -1 };
+    var sphere_two = try Sphere.init(point3.init(&center_two), 1);
+    try world.append(World{ .sphere = &sphere_two });
+
+    //write ppm
     const ppm = try std.fs.cwd().createFile("image.ppm", .{});
     defer ppm.close();
-
     try format(ppm.writer(), "P3\n {d} {d}\n255\n", .{ image_width, image_height });
 
     for (0..image_height) |j| {
@@ -88,16 +101,29 @@ pub fn main() !void {
             var ray_direction = pixel_center - camera_center;
 
             var ray = Ray{ .origin = vec3.init(&camera_center), .direction = vec3.init(&ray_direction) };
-            var center = @Vector(3, f32){ 0, 0, -1 };
 
-            const t = hitSphere(&ray, vec3.init(&center), 0.5);
-            if (t > 0) {
-                var v = ray.pointAtParameter(t) - center;
-                const v3 = vec3.init(&v);
-                const n = unitVector(v3);
-                const r_int = @as(u8, @intFromFloat(0.5 * (n.x() + 1) * 255));
-                const g_int = @as(u8, @intFromFloat(0.5 * (n.y() + 1) * 255));
-                const b_int = @as(u8, @intFromFloat(0.5 * (n.z() + 1) * 255));
+            const hit_record = try arena.create(HitRecord);
+            const hr = HitRecord.init(point3.init(&camera_center), &ray.direction);
+            hit_record.* = hr;
+
+            var hit_anything = false;
+            var closest_so_far = std.math.inf(f32);
+
+            for (world.items) |obj| {
+                const hit = try obj.sphere.hit(&ray, 0, closest_so_far, hit_record, arena);
+                if (hit) {
+                    hit_anything = true;
+                    closest_so_far = hit_record.t;
+                }
+            }
+
+            if (hit_anything) {
+                const r = 0.5 * ((hit_record.normal.x() / hit_record.normal.length_sqr()) + 1) * 255;
+                const g = 0.5 * ((hit_record.normal.y() / hit_record.normal.length_sqr()) + 1) * 255;
+                const b = 0.5 * ((hit_record.normal.z() / hit_record.normal.length_sqr()) + 1) * 255;
+                const r_int = @as(u8, @intFromFloat(r));
+                const g_int = @as(u8, @intFromFloat(g));
+                const b_int = @as(u8, @intFromFloat(b));
                 try std.fmt.format(ppm.writer(), "{d} {d} {d}\n", .{ r_int, g_int, b_int });
             } else {
                 const ray_vec = vec3.init(&ray_direction);
@@ -113,4 +139,5 @@ pub fn main() !void {
             }
         }
     }
+    defer arena_impl.deinit();
 }
