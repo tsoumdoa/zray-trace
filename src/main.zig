@@ -34,6 +34,8 @@ const image_height = @as(usize, @intFromFloat(@as(f32, @floatFromInt(image_width
 const image_width_splat = @as(@Vector(3, f32), @splat(@as(f32, @floatFromInt(image_width))));
 const image_height_splat = @as(@Vector(3, f32), @splat(@as(f32, @floatFromInt(image_height))));
 
+const SAMPLING_MULTIPLIER = 2;
+
 // camera
 const focal_length: f32 = 1.0;
 const viewport_height: f32 = 2.0;
@@ -86,14 +88,14 @@ pub fn main() !void {
     var sphere_two = try Sphere.init(point3.init(&center_two), 1);
     try world.append(World{ .sphere = &sphere_two });
 
-    //write ppm
-    const ppm = try std.fs.cwd().createFile("image.ppm", .{});
-    defer ppm.close();
-    try format(ppm.writer(), "P3\n {d} {d}\n255\n", .{ image_width, image_height });
+    var texture_buffer = try ArrayList(ArrayList(@Vector(3, u16))).initCapacity(gpa, image_height);
+    defer texture_buffer.deinit();
 
-    for (0..image_height) |j| {
-        try stdout.print("\x1BM \x1b[1;37m Scanlines remaining: {d}\n", .{image_height - j});
-        for (0..image_width) |i| {
+    for (0..image_height * SAMPLING_MULTIPLIER) |j| {
+        var row_buffer = try ArrayList(@Vector(3, u16)).initCapacity(arena, image_width);
+        for (0..image_width * SAMPLING_MULTIPLIER) |i| {
+            var v = @Vector(3, u16){ 0, 0, 0 };
+
             const i_splat = @as(@Vector(3, f32), @splat(@as(f32, @floatFromInt(i))));
             const j_splat = @as(@Vector(3, f32), @splat(@as(f32, @floatFromInt(j))));
 
@@ -121,10 +123,9 @@ pub fn main() !void {
                 const r = 0.5 * ((hit_record.normal.x() / hit_record.normal.length_sqr()) + 1) * 255;
                 const g = 0.5 * ((hit_record.normal.y() / hit_record.normal.length_sqr()) + 1) * 255;
                 const b = 0.5 * ((hit_record.normal.z() / hit_record.normal.length_sqr()) + 1) * 255;
-                const r_int = @as(u8, @intFromFloat(r));
-                const g_int = @as(u8, @intFromFloat(g));
-                const b_int = @as(u8, @intFromFloat(b));
-                try std.fmt.format(ppm.writer(), "{d} {d} {d}\n", .{ r_int, g_int, b_int });
+                v[0] = @as(u16, @intFromFloat(r));
+                v[1] = @as(u16, @intFromFloat(g));
+                v[2] = @as(u16, @intFromFloat(b));
             } else {
                 const ray_vec = vec3.init(&ray_direction);
                 const unit_direction = unitVector(ray_vec);
@@ -132,11 +133,33 @@ pub fn main() !void {
                 const start_col = @as(@Vector(3, f32), @splat(1.0 - a));
                 const end_col = @Vector(3, f32){ a * 0.5, a * 0.7, a * 1.0 };
                 const col = start_col + end_col;
-                const r_int = @as(u8, @intFromFloat(col[0] * 255));
-                const g_int = @as(u8, @intFromFloat(col[1] * 255));
-                const b_int = @as(u8, @intFromFloat(col[2] * 255));
-                try std.fmt.format(ppm.writer(), "{d} {d} {d}\n", .{ r_int, g_int, b_int });
+                v[0] = @as(u16, @intFromFloat(col[0] * 255));
+                v[1] = @as(u16, @intFromFloat(col[1] * 255));
+                v[2] = @as(u16, @intFromFloat(col[2] * 255));
             }
+            try row_buffer.append(v);
+        }
+        try texture_buffer.append(row_buffer);
+    }
+
+    //write ppm
+    const ppm = try std.fs.cwd().createFile("image.ppm", .{});
+    defer ppm.close();
+    try format(ppm.writer(), "P3\n {d} {d}\n255\n", .{ image_width, image_height });
+
+    for (0..image_height) |j| {
+        try stdout.print("\x1BM \x1b[1;37m Scanlines remaining: {d}\n", .{image_height - j});
+        for (0..image_width) |i| {
+            const i_current = texture_buffer.items[j].items[i];
+            const i_next_current = texture_buffer.items[j].items[i + 1];
+            const j_current = texture_buffer.items[j + 1].items[i];
+            const j_next_current = texture_buffer.items[j].items[i];
+
+            const i_sample = (i_current + i_next_current);
+            const j_sample = (j_current + j_next_current);
+            const average = (i_sample + j_sample) / @as(@Vector(3, u16), @splat(@as(u8, 4)));
+
+            try std.fmt.format(ppm.writer(), "{d} {d} {d}\n", .{ average[0], average[1], average[2] });
         }
     }
     defer arena_impl.deinit();
