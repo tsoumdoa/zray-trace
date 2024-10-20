@@ -29,17 +29,17 @@ pub const Sphere = struct {
         if (discriminant < 0) return false;
 
         const sqrtd = @sqrt(discriminant);
-        const root = (h - sqrtd) / a;
+        var root = (h - sqrtd) / a;
         if (root <= ray_tmin or ray_tmax <= root) {
-            const reversed_root = (h + sqrtd) / a;
-            if (root <= ray_tmin or ray_tmax <= reversed_root) return false;
+            root = (h + sqrtd) / a;
+            if (root <= ray_tmin or ray_tmax <= root) return false;
         }
 
         rec.t = root;
         rec.p = ray.pointAtParameter(root);
 
         const v = try allocator.create(@Vector(3, f32));
-        const outward_normal = (rec.p.e.* + self.center.e.*) / @as(@Vector(3, f32), @splat(self.radius));
+        const outward_normal = (rec.p.e.* - self.center.e.*) / @as(@Vector(3, f32), @splat(self.radius));
         v.* = outward_normal;
         const vec = try allocator.create(vec3);
         vec.* = vec3.init(v);

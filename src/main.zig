@@ -35,6 +35,7 @@ const image_width_splat = @as(@Vector(3, f32), @splat(@as(f32, @floatFromInt(ima
 const image_height_splat = @as(@Vector(3, f32), @splat(@as(f32, @floatFromInt(image_height))));
 
 const SAMPLING_MULTIPLIER = 2;
+const MAX_DEPTH = 50;
 
 // camera
 const focal_length: f32 = 1.0;
@@ -74,6 +75,14 @@ pub fn main() !void {
     var arena_impl = std.heap.ArenaAllocator.init(gpa);
     const arena = arena_impl.allocator();
 
+    //rand
+    var prng = std.rand.DefaultPrng.init(blk: {
+        var seed: u64 = undefined;
+        try std.posix.getrandom(std.mem.asBytes(&seed));
+        break :blk seed;
+    });
+    const rand = prng.random();
+
     const World = union {
         sphere: *Sphere,
     };
@@ -108,6 +117,8 @@ pub fn main() !void {
             const hr = HitRecord.init(point3.init(&camera_center), &ray.direction);
             hit_record.* = hr;
 
+            var pixel_color = @Vector(3, f32){ 0, 0, 0 };
+
             var hit_anything = false;
             var closest_so_far = std.math.inf(f32);
 
@@ -116,13 +127,46 @@ pub fn main() !void {
                 if (hit) {
                     hit_anything = true;
                     closest_so_far = hit_record.t;
+                    var normal = (hit_record.p.e.* - obj.sphere.center.e.*) / @as(@Vector(3, f32), @splat(obj.sphere.radius));
+                    // hit_record.p = obj.sphere.center;
+                    hit_record.normal.* = vec3.init(&normal);
+                    // break;
                 }
             }
 
             if (hit_anything) {
-                const r = 0.5 * ((hit_record.normal.x() / hit_record.normal.length_sqr()) + 1) * 255;
-                const g = 0.5 * ((hit_record.normal.y() / hit_record.normal.length_sqr()) + 1) * 255;
-                const b = 0.5 * ((hit_record.normal.z() / hit_record.normal.length_sqr()) + 1) * 255;
+                var rand_vec = @Vector(3, f32){ undefined, undefined, undefined };
+                const normalized_normal_vec = unitVector(hit_record.normal.*);
+
+                for (0..MAX_DEPTH) |_| {
+                    while (true) {
+                        var c = @Vector(3, f32){
+                            (rand.float(f32) - 0.5) * 2,
+                            (rand.float(f32) - 0.5) * 2,
+                            (rand.float(f32) - 0.5) * 2,
+                        };
+
+                        const candidate = vec3.init(&c);
+                        const length_sqr = candidate.length_sqr();
+
+                        if (1e-160 < length_sqr and length_sqr <= 1.0) {
+                            if (dot(candidate, normalized_normal_vec) > 0) {
+                                rand_vec = unitVector(candidate).e.*;
+                            } else {
+                                rand_vec = unitVector(candidate.negative()).e.*;
+                            }
+                            break;
+                        }
+                    }
+                    pixel_color += (rand_vec * @as(@Vector(3, f32), @splat(0.5)));
+                }
+
+                const biased_normal = vec3.init(&pixel_color);
+                _ = biased_normal.div(MAX_DEPTH);
+
+                const r = 0.5 * ((biased_normal.x() / biased_normal.length_sqr()) + 1) * 255;
+                const g = 0.5 * ((biased_normal.y() / biased_normal.length_sqr()) + 1) * 255;
+                const b = 0.5 * ((biased_normal.z() / biased_normal.length_sqr()) + 1) * 255;
                 v[0] = @as(u16, @intFromFloat(r));
                 v[1] = @as(u16, @intFromFloat(g));
                 v[2] = @as(u16, @intFromFloat(b));
