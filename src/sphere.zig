@@ -11,18 +11,18 @@ pub const Sphere = struct {
     center: vec3,
     radius: f32,
 
-    pub fn init(center: point3, radius: f32) !Self {
+    pub inline fn init(center: point3, radius: f32) !Self {
         return Self{
             .center = center,
             .radius = radius,
         };
     }
 
-    pub fn hit(self: Self, ray: *Ray, ray_tmin: f32, ray_tmax: f32, rec: *hit_record, allocator: std.mem.Allocator) !bool {
-        var oc = self.center.e.* - ray.origin.e.*;
+    pub inline fn hit(self: Self, ray: *const *Ray, ray_tmin: f32, ray_tmax: f32, rec: *hit_record, allocator: std.mem.Allocator) !bool {
+        var oc = self.center.e.* - ray.*.origin.e.*;
         const oc_vec3 = vec3.init(&oc);
-        const a = ray.direction.length_sqr();
-        const h = dot(ray.direction, oc_vec3);
+        const a = ray.*.direction.length_sqr();
+        const h = dot(ray.*.direction, oc_vec3);
         const c = oc_vec3.length_sqr() - (self.radius * self.radius);
         const discriminant = (h * h) - (a * c);
 
@@ -35,8 +35,16 @@ pub const Sphere = struct {
             if (root <= ray_tmin or ray_tmax <= root) return false;
         }
 
+        var p = ray.*.pointAtParameter(root);
+        // std.debug.print("this this: {any}\n", .{p});
+
+        const p_alloc = try allocator.create(point3);
+        p_alloc.* = point3.init(&p);
+
         rec.t = root;
-        rec.p = ray.pointAtParameter(root);
+        rec.p = p_alloc;
+
+        // std.debug.print("rec.p: {any}\n", .{rec.p.e.*});
 
         const v = try allocator.create(@Vector(3, f32));
         const outward_normal = (rec.p.e.* - self.center.e.*) / @as(@Vector(3, f32), @splat(self.radius));
