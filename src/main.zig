@@ -11,6 +11,8 @@ const print = std.debug.print;
 const Ray = @import("./ray.zig").Ray;
 const HitRecord = @import("./hit_record.zig").HitRecord;
 const Sphere = @import("./sphere.zig").Sphere;
+const World = @import("./world.zig").World;
+const Color = @import("./color.zig").Color;
 
 fn hitSphere(ray: *Ray, center: point3, radius: f32) f32 {
     var oc = center.e.* - ray.origin.e.*;
@@ -83,19 +85,15 @@ pub fn main() !void {
     });
     const rand = prng.random();
 
-    const World = union {
-        sphere: *Sphere,
-    };
+    var world = World.init(arena);
 
-    var world = ArrayList(World).init(gpa);
-    defer world.deinit();
-
-    var center_one = @Vector(3, f32){ 0, 0, -1 };
+    var center_one = @Vector(3, f32){ 0, 0.01, -1 };
     var sphere_one = try Sphere.init(point3.init(&center_one), 0.5);
-    try world.append(World{ .sphere = &sphere_one });
     var center_two = @Vector(3, f32){ 0.0, -2, -1 };
     var sphere_two = try Sphere.init(point3.init(&center_two), 1);
-    try world.append(World{ .sphere = &sphere_two });
+
+    try world.add(&sphere_one);
+    try world.add(&sphere_two);
 
     var texture_buffer = try ArrayList(ArrayList(@Vector(3, u16))).initCapacity(gpa, image_height);
     defer texture_buffer.deinit();
@@ -103,8 +101,6 @@ pub fn main() !void {
     for (0..image_height * SAMPLING_MULTIPLIER) |j| {
         var row_buffer = try ArrayList(@Vector(3, u16)).initCapacity(arena, image_width);
         for (0..image_width * SAMPLING_MULTIPLIER) |i| {
-            var v = @Vector(3, u16){ 0, 0, 0 };
-
             const i_splat = @as(@Vector(3, f32), @splat(@as(f32, @floatFromInt(i))));
             const j_splat = @as(@Vector(3, f32), @splat(@as(f32, @floatFromInt(j))));
 
@@ -114,74 +110,13 @@ pub fn main() !void {
             var ray = Ray{ .origin = vec3.init(&camera_center), .direction = vec3.init(&ray_direction) };
 
             const hit_record = try arena.create(HitRecord);
-            const hr = HitRecord.init(point3.init(&camera_center), &ray.direction);
+            var pt_camera = point3.init(&camera_center);
+            const hr = HitRecord.init(&pt_camera, &ray.direction);
             hit_record.* = hr;
 
-            var pixel_color = @Vector(3, f32){ 0, 0, 0 };
+            const col = try Color(&ray, hit_record, MAX_DEPTH, world, arena, rand);
 
-            var hit_anything = false;
-            var closest_so_far = std.math.inf(f32);
-
-            for (world.items) |obj| {
-                const hit = try obj.sphere.hit(&ray, 0, closest_so_far, hit_record, arena);
-                if (hit) {
-                    hit_anything = true;
-                    closest_so_far = hit_record.t;
-                    var normal = (hit_record.p.e.* - obj.sphere.center.e.*) / @as(@Vector(3, f32), @splat(obj.sphere.radius));
-                    // hit_record.p = obj.sphere.center;
-                    hit_record.normal.* = vec3.init(&normal);
-                    // break;
-                }
-            }
-
-            if (hit_anything) {
-                var rand_vec = @Vector(3, f32){ undefined, undefined, undefined };
-                const normalized_normal_vec = unitVector(hit_record.normal.*);
-
-                for (0..MAX_DEPTH) |_| {
-                    while (true) {
-                        var c = @Vector(3, f32){
-                            (rand.float(f32) - 0.5) * 2,
-                            (rand.float(f32) - 0.5) * 2,
-                            (rand.float(f32) - 0.5) * 2,
-                        };
-
-                        const candidate = vec3.init(&c);
-                        const length_sqr = candidate.length_sqr();
-
-                        if (1e-160 < length_sqr and length_sqr <= 1.0) {
-                            if (dot(candidate, normalized_normal_vec) > 0) {
-                                rand_vec = unitVector(candidate).e.*;
-                            } else {
-                                rand_vec = unitVector(candidate.negative()).e.*;
-                            }
-                            break;
-                        }
-                    }
-                    pixel_color += (rand_vec * @as(@Vector(3, f32), @splat(0.5)));
-                }
-
-                const biased_normal = vec3.init(&pixel_color);
-                _ = biased_normal.div(MAX_DEPTH);
-
-                const r = 0.5 * ((biased_normal.x() / biased_normal.length_sqr()) + 1) * 255;
-                const g = 0.5 * ((biased_normal.y() / biased_normal.length_sqr()) + 1) * 255;
-                const b = 0.5 * ((biased_normal.z() / biased_normal.length_sqr()) + 1) * 255;
-                v[0] = @as(u16, @intFromFloat(r));
-                v[1] = @as(u16, @intFromFloat(g));
-                v[2] = @as(u16, @intFromFloat(b));
-            } else {
-                const ray_vec = vec3.init(&ray_direction);
-                const unit_direction = unitVector(ray_vec);
-                const a = 0.5 * (unit_direction.y() + 1);
-                const start_col = @as(@Vector(3, f32), @splat(1.0 - a));
-                const end_col = @Vector(3, f32){ a * 0.5, a * 0.7, a * 1.0 };
-                const col = start_col + end_col;
-                v[0] = @as(u16, @intFromFloat(col[0] * 255));
-                v[1] = @as(u16, @intFromFloat(col[1] * 255));
-                v[2] = @as(u16, @intFromFloat(col[2] * 255));
-            }
-            try row_buffer.append(v);
+            try row_buffer.append(col);
         }
         try texture_buffer.append(row_buffer);
     }

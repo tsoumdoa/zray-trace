@@ -5,9 +5,9 @@ pub const Ray = struct {
     origin: point3,
     direction: vec3,
 
-    pub fn pointAtParameter(self: Ray, t: f32) point3 {
+    pub fn pointAtParameter(self: Ray, t: f32) @Vector(3, f32) {
         const c = self.direction.mul(t);
-        var p = self.origin.e.* + c.e.*;
-        return point3.init(&p);
+        const p = self.origin.e.* + c.e.*;
+        return p;
     }
 };

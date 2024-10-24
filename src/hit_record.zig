@@ -6,11 +6,11 @@ const std = @import("std");
 
 pub const HitRecord = struct {
     const Self = @This();
-    p: point3,
+    p: *point3,
     normal: *vec3,
     t: f32,
 
-    pub fn init(origin: point3, direction: *vec3) Self {
+    pub fn init(origin: *point3, direction: *vec3) Self {
         return Self{
             .p = origin,
             .normal = direction,
@@ -18,8 +18,8 @@ pub const HitRecord = struct {
         };
     }
 
-    pub fn setFaceNormal(self: Self, ray: *Ray, normal: *vec3) void {
-        const is_front_face = dot(ray.direction, normal.*) > 0;
+    pub inline fn setFaceNormal(self: Self, ray: *const *Ray, normal: *vec3) void {
+        const is_front_face = dot(ray.*.direction, normal.*) > 0;
         if (!is_front_face) {
             self.normal.* = normal.*;
         } else {
